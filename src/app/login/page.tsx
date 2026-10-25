@@ -8,6 +8,7 @@ import { Crown, Eye, EyeOff, LoaderCircle, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/shared/form-field";
+import { apiUrl } from "@/lib/api";
 import { loginSchema, type LoginValues } from "@/lib/validation";
 
 export default function LoginPage() {
@@ -24,7 +25,8 @@ export default function LoginPage() {
   const onSubmit = async (values: LoginValues) => {
     setError(null);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(apiUrl("/api/auth/login"), {
+        credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),

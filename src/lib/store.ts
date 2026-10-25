@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { BookingInput, CustomerInput, HallInput, PaymentInput, Result } from "./domain";
+import { apiUrl } from "./api";
 import { emptyData } from "./seed";
 import type { AppData, Booking, BookingStatus, Customer, Hall, Invoice, Payment, Settings } from "./types";
 
@@ -58,11 +59,12 @@ function goToLogin() {
 async function request<T>(method: string, path: string, body?: unknown): Promise<Result<T> & { diff?: Diff }> {
   let res: Response;
   try {
-    res = await fetch(path, {
+    res = await fetch(apiUrl(path), {
       method,
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
+      credentials: "include",
     });
   } catch {
     return { ok: false, error: "Cannot reach the server. Check your internet connection and try again." };
@@ -119,7 +121,7 @@ export const useStore = create<StoreState>()(
           else set({ loadError: result.error });
         },
         logout: async () => {
-          await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+          await fetch(apiUrl("/api/auth/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
           // eslint-disable-next-line @next/next/no-location-assign-relative-destination
           window.location.assign("/login");
         },
