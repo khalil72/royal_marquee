@@ -38,6 +38,15 @@ function goToLogin() {
   window.location.assign(`/login${next && next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`);
 }
 
+/** Message for a reply that didn't come from our API handlers (they always send { error }). */
+function fallbackError(status: number) {
+  if (status === 404 || status === 405) {
+    return `The app couldn't find its server (error ${status}). Check that NEXT_PUBLIC_API_URL points to the API, then redeploy.`;
+  }
+  if (status >= 500) return `The server ran into a problem (error ${status}). Please try again in a moment.`;
+  return `Request failed (error ${status}). Please try again.`;
+}
+
 /**
  * Calls the API and never throws: network failures, non-JSON replies and error
  * statuses all come back as { ok: false, error } with a message fit to show the user.
@@ -62,6 +71,6 @@ export async function request<T>(method: string, path: string, options: RequestO
     goToLogin();
     return { ok: false, error: "Your session has expired. Please sign in again." };
   }
-  if (!res.ok || !json?.ok) return { ok: false, error: json?.error ?? `Request failed (${res.status}).` };
+  if (!res.ok || !json?.ok) return { ok: false, error: json?.error ?? fallbackError(res.status) };
   return { ok: true, data: json.data as T, diff: json.diff as DataDiff | undefined };
 }
