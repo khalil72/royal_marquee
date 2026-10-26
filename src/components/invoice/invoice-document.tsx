@@ -66,7 +66,7 @@ export const InvoiceDocument = forwardRef<HTMLDivElement, { view: BookingView; i
               <dd>{e.guests.toLocaleString()}</dd>
               <dt className="text-[#64748b]">Venue</dt>
               <dd>
-                {hall?.name ?? "—"}
+                {hall ? view.space : "—"}
                 {e.venueArea ? ` · ${e.venueArea}` : ""}
               </dd>
             </dl>

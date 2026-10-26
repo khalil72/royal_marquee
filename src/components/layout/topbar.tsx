@@ -27,7 +27,7 @@ import { useBookingViews } from "@/lib/hooks";
 import { useStore } from "@/lib/store";
 import { formatDate } from "@/lib/format";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { BrandMark, SidebarNav } from "./sidebar";
+import { BrandMark, SidebarNav, SidebarProfile } from "./sidebar";
 import { NAV_ITEMS } from "./nav";
 
 export function Topbar({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse: () => void }) {
@@ -86,14 +86,15 @@ export function Topbar({ collapsed, onToggleCollapse }: { collapsed: boolean; on
       </div>
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-72 p-0">
+        <SheetContent side="left" className="flex w-72 flex-col p-0">
           <SheetHeader className="border-b p-4">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             <BrandMark />
           </SheetHeader>
-          <div className="p-3">
+          <div className="flex-1 overflow-y-auto p-3">
             <SidebarNav onNavigate={() => setMobileOpen(false)} />
           </div>
+          <SidebarProfile />
         </SheetContent>
       </Sheet>
 

@@ -34,7 +34,7 @@ export function EventDialog({ view, onClose, currency }: { view: BookingView | n
               <p className="flex items-center gap-3">
                 <Building2 className="size-4 text-muted-foreground" />
                 <span className="size-2.5 rounded-full" style={{ background: view.hall?.color }} />
-                {view.hall?.name}{view.booking.event.venueArea && ` · ${view.booking.event.venueArea}`}
+                {view.space}{view.booking.event.venueArea && ` · ${view.booking.event.venueArea}`}
               </p>
               <p className="flex items-center gap-3"><UserRound className="size-4 text-muted-foreground" />{view.customer?.name}</p>
               <p className="flex items-center gap-3"><Phone className="size-4 text-muted-foreground" />{view.customer?.mobile}</p>

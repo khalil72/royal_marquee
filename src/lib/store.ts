@@ -2,21 +2,24 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import {
+  authApi,
+  bookingsApi,
+  COLLECTIONS,
+  customersApi,
+  dataApi,
+  hallsApi,
+  paymentsApi,
+  settingsApi,
+  type ApiResult,
+  type DataDiff,
+  type SettingsPatch,
+} from "./api";
 import type { BookingInput, CustomerInput, HallInput, PaymentInput, Result } from "./domain";
-import { apiUrl } from "./api";
 import { emptyData } from "./seed";
 import type { AppData, Booking, BookingStatus, Customer, Hall, Invoice, Payment, Settings } from "./types";
 
 export type { BookingInput, CustomerInput, HallInput, PaymentInput, Result } from "./domain";
-
-const COLLECTIONS = ["halls", "customers", "bookings", "payments", "invoices"] as const;
-
-/** Changes returned by the server after a mutation (see lib/server/db.ts). */
-interface Diff {
-  settings?: Settings;
-  upsert: Partial<{ [K in (typeof COLLECTIONS)[number]]: AppData[K] }>;
-  remove: Partial<{ [K in (typeof COLLECTIONS)[number]]: string[] }>;
-}
 
 interface StoreState extends AppData {
   hydrated: boolean;
@@ -44,41 +47,12 @@ interface StoreState extends AppData {
 
   issueInvoice: (bookingId: string, forceNew?: boolean) => Promise<Result<Invoice>>;
 
-  updateSettings: (patch: Partial<Omit<Settings, "logo">> & { logo?: string | null }) => Promise<Result<Settings>>;
+  updateSettings: (patch: SettingsPatch) => Promise<Result<Settings>>;
   importData: (data: AppData) => Promise<Result<null>>;
   resetData: (withDemo: boolean) => Promise<Result<null>>;
 }
 
-function goToLogin() {
-  const next = window.location.pathname + window.location.search;
-  // Full page load so no business data stays in memory after the session ends
-  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-  window.location.assign(`/login${next && next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`);
-}
-
-async function request<T>(method: string, path: string, body?: unknown): Promise<Result<T> & { diff?: Diff }> {
-  let res: Response;
-  try {
-    res = await fetch(apiUrl(path), {
-      method,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      cache: "no-store",
-      credentials: "include",
-    });
-  } catch {
-    return { ok: false, error: "Cannot reach the server. Check your internet connection and try again." };
-  }
-  if (res.status === 401) {
-    goToLogin();
-    return { ok: false, error: "Your session has expired. Please sign in again." };
-  }
-  const json = await res.json().catch(() => null);
-  if (!res.ok || !json?.ok) return { ok: false, error: json?.error ?? `Request failed (${res.status}).` };
-  return { ok: true, data: json.data as T, diff: json.diff as Diff | undefined };
-}
-
-function applyDiff(state: AppData, diff: Diff): Partial<AppData> {
+function applyDiff(state: AppData, diff: DataDiff): Partial<AppData> {
   const patch: Partial<AppData> = {};
   if (diff.settings) patch.settings = diff.settings;
   for (const name of COLLECTIONS) {
@@ -100,11 +74,12 @@ function applyDiff(state: AppData, diff: Diff): Partial<AppData> {
 export const useStore = create<StoreState>()(
   persist(
     (set, get) => {
-      /** Send a mutation and merge the server's changes into local state. */
-      const mutate = async <T,>(method: string, path: string, body?: unknown): Promise<Result<T>> => {
-        const result = await request<T>(method, path, body);
-        if (result.ok && result.diff) set(applyDiff(get(), result.diff));
-        return result.ok ? { ok: true, data: result.data } : result;
+      /** Merge the records a mutation changed into local state. */
+      const apply = async <T,>(call: Promise<ApiResult<T>>): Promise<Result<T>> => {
+        const result = await call;
+        if (!result.ok) return result;
+        if (result.diff) set(applyDiff(get(), result.diff));
+        return { ok: true, data: result.data };
       };
 
       return {
@@ -116,38 +91,37 @@ export const useStore = create<StoreState>()(
 
         load: async () => {
           set({ loadError: null });
-          const result = await request<AppData>("GET", "/api/data");
+          const result = await dataApi.getAll();
           if (result.ok) set({ ...result.data, hydrated: true });
           else set({ loadError: result.error });
         },
         logout: async () => {
-          await fetch(apiUrl("/api/auth/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
+          await authApi.logout();
           // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-          window.location.assign("/login");
+          window.location.assign("/login?signedOut=1");
         },
 
-        addCustomer: (input) => mutate("POST", "/api/customers", input),
-        updateCustomer: (id, input) => mutate("PUT", `/api/customers/${id}`, input),
-        deleteCustomer: (id) => mutate("DELETE", `/api/customers/${id}`),
+        addCustomer: (input) => apply(customersApi.create(input)),
+        updateCustomer: (id, input) => apply(customersApi.update(id, input)),
+        deleteCustomer: (id) => apply(customersApi.remove(id)),
 
-        addHall: (input) => mutate("POST", "/api/halls", input),
-        updateHall: (id, input) => mutate("PUT", `/api/halls/${id}`, input),
-        deleteHall: (id) => mutate("DELETE", `/api/halls/${id}`),
+        addHall: (input) => apply(hallsApi.create(input)),
+        updateHall: (id, input) => apply(hallsApi.update(id, input)),
+        deleteHall: (id) => apply(hallsApi.remove(id)),
 
-        createBooking: (input) => mutate("POST", "/api/bookings", input),
-        updateBooking: (id, input) => mutate("PUT", `/api/bookings/${id}`, input),
-        setBookingStatus: (id, status, note) => mutate("POST", `/api/bookings/${id}/status`, { status, note }),
-        deleteBooking: (id) => mutate("DELETE", `/api/bookings/${id}`),
+        createBooking: (input) => apply(bookingsApi.create(input)),
+        updateBooking: (id, input) => apply(bookingsApi.update(id, input)),
+        setBookingStatus: (id, status, note) => apply(bookingsApi.setStatus(id, status, note)),
+        deleteBooking: (id) => apply(bookingsApi.remove(id)),
 
-        addPayment: (bookingId, input) => mutate("POST", `/api/bookings/${bookingId}/payments`, input),
-        voidPayment: (paymentId, reason) => mutate("POST", `/api/payments/${paymentId}/void`, { reason }),
+        addPayment: (bookingId, input) => apply(bookingsApi.addPayment(bookingId, input)),
+        voidPayment: (paymentId, reason) => apply(paymentsApi.void(paymentId, reason)),
 
-        issueInvoice: (bookingId, forceNew = false) =>
-          mutate("POST", `/api/bookings/${bookingId}/invoices`, { forceNew }),
+        issueInvoice: (bookingId, forceNew = false) => apply(bookingsApi.issueInvoice(bookingId, forceNew)),
 
-        updateSettings: (patch) => mutate("PUT", "/api/settings", patch),
-        importData: (data) => mutate("POST", "/api/data/import", data),
-        resetData: (withDemo) => mutate("POST", "/api/data/reset", { demo: withDemo, confirm: "RESET" }),
+        updateSettings: (patch) => apply(settingsApi.update(patch)),
+        importData: (data) => apply(dataApi.import(data)),
+        resetData: (withDemo) => apply(dataApi.reset(withDemo)),
       };
     },
     {

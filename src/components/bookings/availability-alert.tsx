@@ -2,10 +2,10 @@ import Link from "next/link";
 import { CircleCheck, CircleX, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDate, formatTime } from "@/lib/format";
-import type { ConflictResult } from "@/lib/schedule";
-import type { Booking, Customer } from "@/lib/types";
+import { spaceLabel, type ConflictResult } from "@/lib/schedule";
+import type { Booking, Customer, Hall } from "@/lib/types";
 
-function ConflictList({ items, customers }: { items: Booking[]; customers: Customer[] }) {
+function ConflictList({ items, customers, halls }: { items: Booking[]; customers: Customer[]; halls: Hall[] }) {
   return (
     <ul className="mt-2 space-y-1">
       {items.map((b) => (
@@ -13,7 +13,7 @@ function ConflictList({ items, customers }: { items: Booking[]; customers: Custo
           <Link href={`/bookings/${b.id}`} target="_blank" className="font-medium underline underline-offset-2">
             {b.bookingNumber}
           </Link>{" "}
-          · {b.event.title} · {formatDate(b.event.date)} {formatTime(b.event.startTime)}–{formatTime(b.event.endTime)}
+          · {b.event.title} · {spaceLabel(halls.find((h) => h.id === b.event.hallId), b.event.portionId)} · {formatDate(b.event.date)} {formatTime(b.event.startTime)}–{formatTime(b.event.endTime)}
           {b.event.overnight && " (+1 day)"} · {customers.find((c) => c.id === b.customerId)?.name ?? "—"} ·{" "}
           <span className="font-medium">{b.status}</span>
         </li>
@@ -25,11 +25,13 @@ function ConflictList({ items, customers }: { items: Booking[]; customers: Custo
 export function AvailabilityAlert({
   conflicts,
   customers,
+  halls = [],
   ready,
   className,
 }: {
   conflicts: ConflictResult;
   customers: Customer[];
+  halls?: Hall[];
   /** Hall, date and valid times are all selected */
   ready: boolean;
   className?: string;
@@ -45,10 +47,13 @@ export function AvailabilityAlert({
     return (
       <div role="alert" className={cn("rounded-lg border border-destructive/30 bg-destructive/8 p-3 text-destructive", className)}>
         <p className="flex items-center gap-2 text-sm font-semibold">
-          <CircleX className="size-4" /> Hall already booked for this time
+          <CircleX className="size-4" /> Already booked for this time
         </p>
-        <p className="mt-1 text-xs">Choose a different hall or time. Overlapping confirmed bookings are not allowed.</p>
-        <ConflictList items={conflicts.blocking} customers={customers} />
+        <p className="mt-1 text-xs">
+          Choose a different hall, portion or time. Overlapping confirmed bookings are not allowed, and a full-hall
+          booking blocks every portion.
+        </p>
+        <ConflictList items={conflicts.blocking} customers={customers} halls={halls} />
       </div>
     );
   }
@@ -61,7 +66,7 @@ export function AvailabilityAlert({
         <p className="mt-1 text-xs">
           You can save, but only one of these bookings can be confirmed for this hall and time.
         </p>
-        <ConflictList items={conflicts.tentative} customers={customers} />
+        <ConflictList items={conflicts.tentative} customers={customers} halls={halls} />
       </div>
     );
   }

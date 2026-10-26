@@ -44,7 +44,7 @@ export function buildSlip(data: AppData, paymentId: string) {
       startTime: view.booking.event.startTime,
       endTime: view.booking.event.endTime,
       overnight: view.booking.event.overnight,
-      hall: view.hall?.name ?? null,
+      hall: view.hall ? view.space : null,
       status: view.booking.status,
     },
     totals: {

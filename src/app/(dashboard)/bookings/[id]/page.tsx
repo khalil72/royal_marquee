@@ -25,6 +25,7 @@ import {
   UserRound,
   Users,
   Wallet,
+  LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ import { SectionCard } from "@/components/shared/form-field";
 import { PaymentBadge, StatusBadge } from "@/components/shared/status-badge";
 import { formatDate, formatDateTime, formatDuration, formatMoney, formatTime } from "@/lib/format";
 import { useBookingView } from "@/lib/hooks";
+import { spaceCapacity } from "@/lib/schedule";
 import { useStore } from "@/lib/store";
 
 function Info({ icon: Icon, label, children }: { icon: React.ComponentType<{ className?: string }>; label: string; children: React.ReactNode }) {
@@ -68,6 +70,7 @@ export default function BookingDetailsPage() {
   const issueInvoice = useStore((s) => s.issueInvoice);
   const [pending, setPending] = useState<null | "confirm" | "cancel" | "restore" | "delete" | "payment">(null);
   const setBookingStatus = useStore((s) => s.setBookingStatus);
+  const [invoiceBusy, setInvoiceBusy] = useState(false);
 
   if (!view) return <NotFoundState />;
   const { booking, customer, hall, totals, summary, payments, invoices } = view;
@@ -75,7 +78,10 @@ export default function BookingDetailsPage() {
   const e = booking.event;
 
   const openInvoice = async (opts: { print?: boolean; forceNew?: boolean } = {}) => {
+    if (invoiceBusy) return;
+    setInvoiceBusy(true);
     const result = await issueInvoice(booking.id, opts.forceNew);
+    setInvoiceBusy(false);
     if (!result.ok) return toast.error(result.error);
     if (opts.forceNew) toast.success(`Invoice ${result.data.invoiceNumber} issued`);
     router.push(`/invoices/${result.data.id}${opts.print ? "?print=1" : ""}`);
@@ -109,7 +115,7 @@ export default function BookingDetailsPage() {
             <Button asChild variant="outline" size="lg">
               <Link href={`/bookings/${booking.id}/edit`}><Pencil /> Edit Booking</Link>
             </Button>
-            <Button variant="outline" size="lg" onClick={() => openInvoice({ print: true })}>
+            <Button variant="outline" size="lg" onClick={() => openInvoice({ print: true })} disabled={invoiceBusy}>
               <Printer /> Print Invoice
             </Button>
             <DropdownMenu>
@@ -180,8 +186,11 @@ export default function BookingDetailsPage() {
                     {hall?.name ?? "Deleted hall"}
                   </span>
                 </Info>
+                {hall?.divided && (
+                  <Info icon={LayoutGrid} label="Booked space">{view.portion?.name ?? "Full hall (all portions)"}</Info>
+                )}
                 <Info icon={MapPin} label="Area">{e.venueArea || "Entire venue"}</Info>
-                <Info icon={Users} label="Capacity">{hall ? `${hall.capacity} guests` : "—"}</Info>
+                <Info icon={Users} label="Capacity">{hall ? `${spaceCapacity(hall, e.portionId)} guests` : "—"}</Info>
                 <Info icon={MapPin} label="Location">{hall?.location}</Info>
               </div>
               {e.specialInstructions && (
@@ -244,7 +253,7 @@ export default function BookingDetailsPage() {
               icon={Receipt}
               title="Invoice & Receipt History"
               action={
-                <Button size="sm" variant="outline" onClick={() => openInvoice({ forceNew: invoices.length > 0 })}>
+                <Button size="sm" variant="outline" onClick={() => openInvoice({ forceNew: invoices.length > 0 })} disabled={invoiceBusy}>
                   <FileText /> {invoices.length ? "Re-issue" : "Generate"}
                 </Button>
               }
@@ -302,7 +311,7 @@ export default function BookingDetailsPage() {
             <h3 className="mb-3 font-semibold">Pricing Breakdown</h3>
             <PricingBreakdown charges={booking.charges} guests={e.guests} totals={totals} summary={summary} currency={cur} />
           </div>
-          <Button variant="outline" size="lg" className="w-full" onClick={() => openInvoice()}>
+          <Button variant="outline" size="lg" className="w-full" onClick={() => openInvoice()} disabled={invoiceBusy}>
             <FileText /> Preview Invoice
           </Button>
         </aside>

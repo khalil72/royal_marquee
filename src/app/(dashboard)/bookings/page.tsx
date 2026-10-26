@@ -89,7 +89,7 @@ export default function BookingsPage() {
       if (from && b.event.date < from) return false;
       if (to && b.event.date > to) return false;
       if (!q) return true;
-      return [b.bookingNumber, b.event.title, v.customer?.name, v.customer?.mobile, v.customer?.cnic, v.hall?.name]
+      return [b.bookingNumber, b.event.title, v.customer?.name, v.customer?.mobile, v.customer?.cnic, v.space]
         .filter(Boolean)
         .some((s) => s!.toLowerCase().includes(q));
     });
@@ -249,7 +249,7 @@ export default function BookingsPage() {
                       <TableCell>
                         <span className="inline-flex items-center gap-2 whitespace-nowrap">
                           <span className="size-2 rounded-full" style={{ background: v.hall?.color }} />
-                          {v.hall?.name ?? "—"}
+                          {v.space}
                         </span>
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">{formatMoney(v.totals.grandTotal, currency)}</TableCell>

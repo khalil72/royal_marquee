@@ -91,7 +91,7 @@ export default function CustomerDetailPage() {
                         {formatDate(v.booking.event.date)}
                         <p className="text-xs text-muted-foreground">{formatTime(v.booking.event.startTime)} – {formatTime(v.booking.event.endTime)}</p>
                       </TableCell>
-                      <TableCell>{v.hall?.name}</TableCell>
+                      <TableCell>{v.space}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatMoney(v.totals.grandTotal, currency)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatMoney(v.summary.remaining, currency)}</TableCell>
                       <TableCell><StatusBadge status={v.booking.status} /></TableCell>

@@ -1,5 +1,5 @@
 import { addDays, parseISO, set } from "date-fns";
-import type { Booking, BookingStatus, EventDetails } from "./types";
+import type { Booking, BookingStatus, EventDetails, Hall, HallPortion } from "./types";
 
 type Timing = Pick<EventDetails, "date" | "startTime" | "endTime" | "overnight">;
 
@@ -45,9 +45,9 @@ export function intervalsOverlap(a: { start: Date; end: Date }, b: { start: Date
 }
 
 /** Statuses that occupy a hall. Cancelled bookings free the slot. */
-const OCCUPYING: BookingStatus[] = ["Pending", "Confirmed", "Completed"];
+export const OCCUPYING: BookingStatus[] = ["Pending", "Confirmed", "Completed"];
 /** Statuses that firmly hold a hall and block any overlapping booking. */
-const FIRM: BookingStatus[] = ["Confirmed", "Completed"];
+export const FIRM: BookingStatus[] = ["Confirmed", "Completed"];
 
 export interface ConflictResult {
   /** Overlapping confirmed/completed bookings: saving must be blocked. */
@@ -56,8 +56,53 @@ export interface ConflictResult {
   tentative: Booking[];
 }
 
+// ---------- Halls and portions ----------
+
+/** Portions of a hall, or none when the hall is not divided. */
+export function hallPortions(hall: Hall | undefined): HallPortion[] {
+  return hall?.divided ? (hall.portions ?? []) : [];
+}
+
+/** Whether the whole hall can be booked at once. Undivided halls always can. */
+export function canBookFullHall(hall: Hall | undefined) {
+  return !hall?.divided || hall.allowFullBooking !== false;
+}
+
+export function findPortion(hall: Hall | undefined, portionId: string | undefined) {
+  return portionId ? hall?.portions?.find((p) => p.id === portionId) : undefined;
+}
+
+/** "Royal Hall · Portion A", "Royal Hall · Full hall" (divided), or just "Royal Hall". */
+export function spaceLabel(hall: Hall | undefined, portionId: string | undefined, fallback = "—") {
+  if (!hall) return fallback;
+  const portion = findPortion(hall, portionId);
+  if (portion) return `${hall.name} · ${portion.name}`;
+  if (portionId) return `${hall.name} · Removed portion`;
+  return hall.divided ? `${hall.name} · Full hall` : hall.name;
+}
+
+/** Capacity and rent of what is being booked: a portion, or the full hall. */
+export function spaceCapacity(hall: Hall | undefined, portionId: string | undefined) {
+  return findPortion(hall, portionId)?.capacity ?? hall?.capacity ?? 0;
+}
+export function spaceRent(hall: Hall | undefined, portionId: string | undefined) {
+  return findPortion(hall, portionId)?.rent ?? hall?.baseRent ?? 0;
+}
+
+type Space = Pick<EventDetails, "hallId" | "portionId">;
+
+/**
+ * Two bookings compete for space when they are in the same hall and either takes the full hall
+ * or both take the same portion. Different portions of one hall can run at the same time.
+ */
+export function spacesOverlap(a: Space, b: Space) {
+  if (a.hallId !== b.hallId) return false;
+  if (!a.portionId || !b.portionId) return true;
+  return a.portionId === b.portionId;
+}
+
 export function findConflicts(
-  candidate: Pick<EventDetails, "hallId" | "date" | "startTime" | "endTime" | "overnight">,
+  candidate: Pick<EventDetails, "hallId" | "portionId" | "date" | "startTime" | "endTime" | "overnight">,
   candidateStatus: BookingStatus,
   bookings: Booking[],
   excludeId?: string,
@@ -71,7 +116,7 @@ export function findConflicts(
   const overlapping = bookings.filter(
     (b) =>
       b.id !== excludeId &&
-      b.event.hallId === candidate.hallId &&
+      spacesOverlap(b.event, candidate) &&
       OCCUPYING.includes(b.status) &&
       intervalsOverlap(target, eventInterval(b.event)),
   );

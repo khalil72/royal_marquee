@@ -39,13 +39,14 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Select a date");
 
 const eventSchema = z.object({
   title: z.string().trim().min(2, "Event title is required").max(160),
-  type: z.enum(EVENT_TYPES),
+  type: z.enum(EVENT_TYPES, { error: "Select an event type" }),
   date: z.string().min(1, "Event date is required").pipe(isoDate),
   startTime: time,
   endTime: time,
   overnight: z.boolean(),
   guests: z.number({ error: "Enter guest count" }).int("Whole number only").min(1, "At least 1 guest"),
   hallId: z.string().min(1, "Select a hall or marquee"),
+  portionId: z.string().max(64).optional(),
   venueArea: z.string().max(120),
   organizer: z.string().max(120),
   specialInstructions: z.string().max(4000),
@@ -136,6 +137,21 @@ export const hallInputSchema = z.object({
   description: z.string().max(1000).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Invalid colour"),
   active: z.boolean(),
+  divided: z.boolean().optional(),
+  allowFullBooking: z.boolean().optional(),
+  portions: z
+    .array(
+      z.object({
+        // Empty for portions added in this edit; the server assigns an id
+        id: z.string().max(64),
+        name: z.string().trim().min(1, "Portion name is required").max(80),
+        capacity: z.number().int().min(1, "Capacity must be at least 1"),
+        rent: z.number().min(0, "Cannot be negative"),
+        active: z.boolean(),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 export const statusInputSchema = z.object({

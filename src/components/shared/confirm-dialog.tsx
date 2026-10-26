@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { LoaderCircle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,11 +30,24 @@ export function ConfirmDialog({
   description?: React.ReactNode;
   confirmLabel?: string;
   destructive?: boolean;
-  onConfirm: () => void;
+  /** May be async; the dialog stays open with a spinner until it settles. The caller closes it. */
+  onConfirm: () => unknown;
   children?: React.ReactNode;
 }) {
+  const [busy, setBusy] = useState(false);
+  const confirm = async (e: React.MouseEvent) => {
+    // Keep the dialog open while the request runs
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -40,11 +55,13 @@ export function ConfirmDialog({
         </AlertDialogHeader>
         {children}
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className={destructive ? buttonVariants({ variant: "destructive" }) : undefined}
-            onClick={onConfirm}
+            onClick={confirm}
+            disabled={busy}
           >
+            {busy && <LoaderCircle className="animate-spin" />}
             {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>

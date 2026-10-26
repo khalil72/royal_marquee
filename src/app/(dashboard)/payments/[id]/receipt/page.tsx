@@ -23,7 +23,7 @@ export default function ReceiptPage() {
 
   if (!payment || !view) return <NotFoundState title="Receipt not found" backHref="/payments" backLabel="Back to payments" />;
   const cur = settings.currency;
-  const { booking, customer, hall, totals } = view;
+  const { booking, customer, totals } = view;
 
   // Balance after this payment, counting active payments up to and including it
   const ordered = view.payments.filter((p) => !p.voided);
@@ -75,7 +75,7 @@ export default function ReceiptPage() {
                 </p>
                 <p>
                   <span className="text-[#64748b]">Event:</span> {formatDate(booking.event.date, "EEE, dd MMM yyyy")},{" "}
-                  {formatTime(booking.event.startTime)} – {formatTime(booking.event.endTime)} · {hall?.name}
+                  {formatTime(booking.event.startTime)} – {formatTime(booking.event.endTime)} · {view.space}
                 </p>
                 <p>
                   <span className="text-[#64748b]">Payment:</span> {payment.kind} via {payment.method}

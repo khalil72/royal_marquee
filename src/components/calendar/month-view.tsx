@@ -87,13 +87,13 @@ export function MonthView({
                         "block w-full truncate rounded border border-l-[3px] border-transparent px-1.5 py-0.5 text-left text-[11px] leading-snug transition-shadow hover:shadow-sm",
                         bookingStatusStyles[v.booking.status].block,
                       )}
-                      title={`${v.booking.event.title} · ${v.hall?.name} · ${v.customer?.name}`}
+                      title={`${v.booking.event.title} · ${v.space} · ${v.customer?.name}`}
                     >
                       <span className="font-semibold">{formatTime(v.booking.event.startTime)}</span> {v.booking.event.title}
                       {v.booking.event.overnight && <Moon className="ml-0.5 inline size-2.5" />}
                       <span className="block truncate opacity-75">
                         <span className="mr-1 inline-block size-1.5 rounded-full align-middle" style={{ background: v.hall?.color }} />
-                        {v.hall?.name}
+                        {v.space}
                       </span>
                     </button>
                   ))}

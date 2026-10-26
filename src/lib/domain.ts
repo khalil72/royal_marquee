@@ -5,7 +5,7 @@
  */
 import { calculateTotals, summarizePayments } from "./calc";
 import { formatDate, formatMoney, formatTime } from "./format";
-import { findConflicts, validateTimeRange } from "./schedule";
+import { OCCUPYING, canBookFullHall, findConflicts, findPortion, spaceLabel, validateTimeRange } from "./schedule";
 import { defaultSettings, demoData, emptyData } from "./seed";
 import type {
   AppData,
@@ -62,11 +62,19 @@ function uniqueNumber(make: (n: number) => string, start: number, taken: Set<str
   return { value: make(n), next: n + 1 };
 }
 
-function describeConflict(b: Booking, customers: Customer[]) {
+function describeConflict(b: Booking, customers: Customer[], halls: Hall[] = []) {
   const customer = customers.find((c) => c.id === b.customerId);
-  return `${b.bookingNumber} — ${b.event.title} (${formatDate(b.event.date)}, ${formatTime(
+  const hall = halls.find((h) => h.id === b.event.hallId);
+  const space = hall?.divided ? `${spaceLabel(hall, b.event.portionId)}, ` : "";
+  return `${b.bookingNumber} — ${b.event.title} (${space}${formatDate(b.event.date)}, ${formatTime(
     b.event.startTime,
   )}–${formatTime(b.event.endTime)}${customer ? `, ${customer.name}` : ""})`;
+}
+
+/** Store "full hall" as a missing portionId rather than an empty string. */
+function withCleanPortion(input: BookingInput): BookingInput {
+  const { portionId, ...event } = input.event;
+  return { ...input, event: portionId ? { ...event, portionId } : event };
 }
 
 function validateBookingInput(data: AppData, input: BookingInput, excludeId?: string): string | null {
@@ -77,11 +85,23 @@ function validateBookingInput(data: AppData, input: BookingInput, excludeId?: st
   if (!hall.active && (!existing || existing.event.hallId !== hall.id)) {
     return `${hall.name} is inactive and cannot take new bookings.`;
   }
+  // An existing booking may keep its space even if that space was since made unavailable
+  const sameSpace =
+    !!existing && existing.event.hallId === hall.id && (existing.event.portionId || "") === (e.portionId || "");
+  if (e.portionId) {
+    const portion = findPortion(hall, e.portionId);
+    if (!portion || (!hall.divided && !sameSpace)) return `Please select a valid portion of ${hall.name}.`;
+    if (!portion.active && !sameSpace) return `${hall.name} · ${portion.name} is unavailable for new bookings.`;
+  } else if (!canBookFullHall(hall) && !sameSpace) {
+    return `${hall.name} is booked by portion only. Please select a portion.`;
+  }
   const timeError = validateTimeRange(e.startTime, e.endTime, e.overnight);
   if (timeError) return timeError;
   const { blocking } = findConflicts(e, input.status, data.bookings, excludeId);
   if (blocking.length) {
-    return `Hall is already booked for this time: ${blocking.map((b) => describeConflict(b, data.customers)).join("; ")}`;
+    return `${spaceLabel(hall, e.portionId)} is already booked for this time: ${blocking
+      .map((b) => describeConflict(b, data.customers, data.halls))
+      .join("; ")}`;
   }
   if (input.charges.discountPercent > data.settings.maxDiscountPercent) {
     return `Discount cannot exceed ${data.settings.maxDiscountPercent}% (see Settings).`;
@@ -166,10 +186,29 @@ export function deleteCustomer(data: AppData, id: string): Outcome<null> {
 
 // ---------- Halls ----------
 
+/** Give new portions ids and check the division settings make sense. Returns an error message or the input. */
+function prepareHallInput(input: HallInput): string | HallInput {
+  const portions = (input.portions ?? []).map((p) => ({ ...p, name: p.name.trim(), id: p.id || newId() }));
+  const names = new Set<string>();
+  for (const p of portions) {
+    const key = p.name.toLowerCase();
+    if (names.has(key)) return `Two portions are named "${p.name}". Portion names must be unique.`;
+    names.add(key);
+  }
+  const divided = !!input.divided;
+  if (divided && portions.length < 2) return "A divided hall needs at least two portions.";
+  if (divided && portions.some((p) => p.capacity > input.capacity)) {
+    return "A portion cannot hold more guests than the hall's total capacity.";
+  }
+  return { ...input, divided, allowFullBooking: input.allowFullBooking !== false, portions };
+}
+
 export function addHall(data: AppData, input: HallInput): Outcome<Hall> {
   if (data.halls.some((h) => h.name.trim().toLowerCase() === input.name.trim().toLowerCase()))
     return fail("A hall with this name already exists.");
-  const hall: Hall = { ...input, id: newId(), createdAt: nowIso() };
+  const prepared = prepareHallInput(input);
+  if (typeof prepared === "string") return fail(prepared);
+  const hall: Hall = { ...prepared, id: newId(), createdAt: nowIso() };
   return done({ ...data, halls: [...data.halls, hall] }, hall);
 }
 
@@ -178,7 +217,21 @@ export function updateHall(data: AppData, id: string, input: HallInput): Outcome
   if (!current) return fail("Hall not found.");
   if (data.halls.some((h) => h.id !== id && h.name.trim().toLowerCase() === input.name.trim().toLowerCase()))
     return fail("A hall with this name already exists.");
-  const updated = { ...current, ...input };
+  const prepared = prepareHallInput(input);
+  if (typeof prepared === "string") return fail(prepared);
+
+  // Existing bookings must keep a valid space: don't remove portions they use, or undivide under them
+  const live = data.bookings.filter((b) => b.event.hallId === id && OCCUPYING.includes(b.status));
+  const keptIds = new Set(prepared.portions?.map((p) => p.id));
+  for (const portion of current.portions ?? []) {
+    const count = live.filter((b) => b.event.portionId === portion.id).length;
+    if (!count) continue;
+    if (!keptIds.has(portion.id))
+      return fail(`${portion.name} has ${count} active booking(s). Mark it unavailable instead of removing it.`);
+    if (!prepared.divided)
+      return fail(`${portion.name} has ${count} active booking(s), so this hall must stay divided.`);
+  }
+  const updated = { ...current, ...prepared };
   return done({ ...data, halls: data.halls.map((h) => (h.id === id ? updated : h)) }, updated);
 }
 
@@ -192,6 +245,7 @@ export function deleteHall(data: AppData, id: string): Outcome<null> {
 // ---------- Bookings ----------
 
 export function createBooking(data: AppData, input: BookingInput): Outcome<Booking> {
+  input = withCleanPortion(input);
   const error = validateBookingInput(data, input);
   if (error) return fail(error);
 
@@ -232,6 +286,7 @@ export function createBooking(data: AppData, input: BookingInput): Outcome<Booki
 export function updateBooking(data: AppData, id: string, input: BookingInput): Outcome<Booking> {
   const current = data.bookings.find((b) => b.id === id);
   if (!current) return fail("Booking not found.");
+  input = withCleanPortion(input);
   const error = validateBookingInput(data, input, id);
   if (error) return fail(error);
   const withCustomer = upsertCustomer(data, input.customerId, input.customer);
@@ -262,7 +317,7 @@ export function setBookingStatus(data: AppData, id: string, status: BookingStatu
     const { blocking } = findConflicts(current.event, status, data.bookings, id);
     if (blocking.length) {
       return fail(
-        `Cannot mark as ${status}: hall is already booked by ${blocking.map((b) => describeConflict(b, data.customers)).join("; ")}`,
+        `Cannot mark as ${status}: hall is already booked by ${blocking.map((b) => describeConflict(b, data.customers, data.halls)).join("; ")}`,
       );
     }
   }

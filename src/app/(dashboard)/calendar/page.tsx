@@ -26,6 +26,7 @@ import { DatePicker } from "@/components/shared/date-picker";
 import { PageHeader } from "@/components/shared/page-header";
 import { toDateKey } from "@/lib/format";
 import { useBookingViews, type BookingView } from "@/lib/hooks";
+import { hallPortions } from "@/lib/schedule";
 import { useStore } from "@/lib/store";
 import { bookingStatusStyles } from "@/lib/ui";
 import { BOOKING_STATUSES, EVENT_TYPES } from "@/lib/types";
@@ -62,11 +63,12 @@ export default function CalendarPage() {
   const step = (dir: 1 | -1) =>
     setCursor((c) => (mode === "month" ? addMonths(c, dir) : mode === "week" ? addWeeks(c, dir) : addDays(c, dir)));
 
-  const newBooking = (dayKey: string, hour?: number, hall?: string) => {
+  const newBooking = (dayKey: string, hour?: number, hall?: string, portion?: string) => {
     const params = new URLSearchParams({ date: dayKey });
     if (hour !== undefined) params.set("start", `${String(hour).padStart(2, "0")}:00`);
     const h = hall ?? (hallId !== ALL ? hallId : undefined);
     if (h) params.set("hall", h);
+    if (h && portion) params.set("portion", portion);
     router.push(`/bookings/new?${params}`);
   };
 
@@ -101,18 +103,46 @@ export default function CalendarPage() {
     const key = toDateKey(cursor);
     const daySegs = segments.filter((s) => s.dayKey === key);
     const shownHalls = halls.filter((h) => (hallId === ALL ? h.active || daySegs.some((s) => s.view.booking.event.hallId === h.id) : h.id === hallId));
-    return shownHalls.map((h) => ({
-      key: h.id,
-      dayKey: key,
-      hallId: h.id,
-      header: (
-        <span className="inline-flex items-center gap-2 font-medium">
-          <span className="size-2.5 rounded-full" style={{ background: h.color }} />
-          <span className="truncate">{h.name}</span>
-        </span>
-      ),
-      segments: daySegs.filter((s) => s.view.booking.event.hallId === h.id),
-    }));
+    return shownHalls.flatMap((h): GridColumn[] => {
+      const hallSegs = daySegs.filter((s) => s.view.booking.event.hallId === h.id);
+      const portions = hallPortions(h);
+      if (!portions.length) {
+        return [
+          {
+            key: h.id,
+            dayKey: key,
+            hallId: h.id,
+            header: (
+              <span className="inline-flex items-center gap-2 font-medium">
+                <span className="size-2.5 rounded-full" style={{ background: h.color }} />
+                <span className="truncate">{h.name}</span>
+              </span>
+            ),
+            segments: hallSegs,
+          },
+        ];
+      }
+      // Divided hall: one column per portion. Full-hall bookings appear in every portion they block.
+      return portions.map((p) => ({
+        key: `${h.id}:${p.id}`,
+        dayKey: key,
+        hallId: h.id,
+        portionId: p.id,
+        header: (
+          <span className={cn("inline-flex min-w-0 flex-col items-center", !p.active && "opacity-60")}>
+            <span className="inline-flex max-w-full items-center gap-2 font-medium">
+              <span className="size-2.5 shrink-0 rounded-full" style={{ background: h.color }} />
+              <span className="truncate">{h.name}</span>
+            </span>
+            <span className="truncate text-xs text-muted-foreground">
+              {p.name}
+              {!p.active && " · unavailable"}
+            </span>
+          </span>
+        ),
+        segments: hallSegs.filter((s) => !s.view.booking.event.portionId || s.view.booking.event.portionId === p.id),
+      }));
+    });
   }, [cursor, segments, halls, hallId]);
 
   return (

@@ -10,6 +10,7 @@ import {
   CalendarClock,
   ClipboardList,
   Clock,
+  LayoutGrid,
   LoaderCircle,
   Moon,
   Receipt,
@@ -31,7 +32,18 @@ import { FormField, MoneyInput, SectionCard, numberValue } from "@/components/sh
 import { PaymentBadge } from "@/components/shared/status-badge";
 import { calculateTotals, paymentStatusFor, summarizePayments } from "@/lib/calc";
 import { formatDate, formatDuration, formatMoney } from "@/lib/format";
-import { eventDurationMinutes, findConflicts, validateTimeRange } from "@/lib/schedule";
+import {
+  canBookFullHall,
+  eventDurationMinutes,
+  findConflicts,
+  findPortion,
+  hallPortions,
+  spaceCapacity,
+  spaceLabel,
+  spaceRent,
+  validateTimeRange,
+} from "@/lib/schedule";
+import { cn } from "@/lib/utils";
 import { useStore, type BookingInput } from "@/lib/store";
 import { bookingSchema, type BookingFormValues } from "@/lib/validation";
 import {
@@ -62,12 +74,15 @@ export function BookingForm({
   booking,
   initialDate,
   initialHallId,
+  initialPortionId,
   initialStart,
   initialCustomerId,
 }: {
   booking?: Booking;
   initialDate?: string;
   initialHallId?: string;
+  /** Portion of initialHallId, e.g. from a calendar slot */
+  initialPortionId?: string;
   initialStart?: string;
   initialCustomerId?: string;
 }) {
@@ -80,6 +95,7 @@ export function BookingForm({
   const allPayments = useStore((s) => s.payments);
   const createBooking = useStore((s) => s.createBooking);
   const updateBooking = useStore((s) => s.updateBooking);
+  const issueInvoice = useStore((s) => s.issueInvoice);
   const [submitting, setSubmitting] = useState(false);
 
   const defaultValues = useMemo<BookingFormValues>(() => {
@@ -99,6 +115,7 @@ export function BookingForm({
         },
         event: {
           ...booking.event,
+          portionId: booking.event.portionId ?? "",
           venueArea: booking.event.venueArea ?? "",
           organizer: booking.event.organizer ?? "",
           specialInstructions: booking.event.specialInstructions ?? "",
@@ -110,10 +127,12 @@ export function BookingForm({
         advance: { amount: 0, date: today, method: "Cash", reference: "" },
       };
     }
+    // New bookings start empty. Only values the user chose explicitly are pre-filled:
+    // a customer picked from their profile, or a hall/date/time picked on the calendar.
     const hall = halls.find((h) => h.id === initialHallId && h.active);
+    const portion = hallPortions(hall).find((p) => p.id === initialPortionId && p.active);
     const preset = customers.find((c) => c.id === initialCustomerId);
-    const start = initialStart ?? "19:00";
-    const [sh] = start.split(":").map(Number);
+    const [sh, sm] = (initialStart ?? "").split(":").map(Number);
     const endHour = (sh + 4) % 24;
     return {
       customerId: preset?.id ?? "",
@@ -128,13 +147,15 @@ export function BookingForm({
       },
       event: {
         title: "",
-        type: "Wedding",
+        // Empty until the user picks one; the schema rejects it on submit
+        type: "" as BookingFormValues["event"]["type"],
         date: initialDate ?? "",
-        startTime: start,
-        endTime: `${String(endHour).padStart(2, "0")}:${start.split(":")[1] ?? "00"}`,
-        overnight: sh + 4 >= 24,
-        guests: 0,
+        startTime: initialStart ?? "",
+        endTime: initialStart ? `${String(endHour).padStart(2, "0")}:${String(sm || 0).padStart(2, "0")}` : "",
+        overnight: !!initialStart && sh + 4 >= 24,
+        guests: undefined as unknown as number,
         hallId: hall?.id ?? "",
+        portionId: portion?.id ?? "",
         venueArea: hall?.areas[0] ?? "",
         organizer: preset?.name ?? "",
         specialInstructions: "",
@@ -142,7 +163,7 @@ export function BookingForm({
       status: "Pending",
       source: "Walk-in",
       charges: {
-        hallRent: hall?.baseRent ?? 0,
+        hallRent: hall ? spaceRent(hall, portion?.id) : 0,
         cateringPerPerson: 0,
         decoration: 0,
         stage: 0,
@@ -211,21 +232,59 @@ export function BookingForm({
           : [],
       );
   const paymentStatus = paymentStatusFor(totals.grandTotal, summary.totalPaid);
-  const overCapacity = hall && event.guests > hall.capacity;
+  const portions = hallPortions(hall);
+  const fullHallAllowed = canBookFullHall(hall);
+  const capacity = spaceCapacity(hall, event.portionId);
+  const overCapacity = !!hall && event.guests > capacity;
+  const space = spaceLabel(hall, event.portionId);
+
+  // Availability of every bookable space in the selected hall at the chosen time
+  const spaceOptions = (() => {
+    if (!hall?.divided) return [];
+    const options = [
+      ...(fullHallAllowed || !event.portionId
+        ? [{ id: "", name: "Full hall", detail: "All portions together", capacity: hall.capacity, rent: hall.baseRent, active: fullHallAllowed }]
+        : []),
+      ...portions.map((p) => ({ id: p.id, name: p.name, detail: "", capacity: p.capacity, rent: p.rent, active: p.active })),
+    ];
+    return options.map((o) => {
+      const found = findConflicts({ ...event, portionId: o.id }, status === "Cancelled" ? "Pending" : status, bookings, booking?.id);
+      const state: keyof typeof SPACE_STATES = !o.active
+        ? "unavailable"
+        : found.blocking.length
+          ? "booked"
+          : found.tentative.length
+            ? "pending"
+            : "available";
+      return { ...o, state };
+    });
+  })();
   const advanceTooHigh = !isEdit && !settings.allowOverpayment && (advance?.amount ?? 0) > totals.grandTotal;
 
-  // When the hall changes, pre-fill its base rent unless the user typed a custom amount
+  // A portion only belongs to its own hall: clear it when the hall changes
   const prevHallId = useRef(event.hallId);
   useEffect(() => {
     if (prevHallId.current === event.hallId) return;
-    const prev = halls.find((h) => h.id === prevHallId.current);
-    const next = halls.find((h) => h.id === event.hallId);
     prevHallId.current = event.hallId;
-    if (!next) return;
-    const rent = getValues("charges.hallRent");
-    if (!rent || (prev && rent === prev.baseRent)) setValue("charges.hallRent", next.baseRent);
-    if (!next.areas.includes(getValues("event.venueArea"))) setValue("event.venueArea", next.areas[0] ?? "");
+    const next = halls.find((h) => h.id === event.hallId);
+    if (!findPortion(next, getValues("event.portionId"))) setValue("event.portionId", "");
+    if (next && !next.areas.includes(getValues("event.venueArea"))) setValue("event.venueArea", next.areas[0] ?? "");
   }, [event.hallId, halls, getValues, setValue]);
+
+  // When the hall or portion changes, pre-fill its rent unless the user typed a custom amount
+  const prevSpace = useRef({ hallId: event.hallId, portionId: event.portionId });
+  useEffect(() => {
+    const prev = prevSpace.current;
+    if (prev.hallId === event.hallId && prev.portionId === event.portionId) return;
+    prevSpace.current = { hallId: event.hallId, portionId: event.portionId };
+    const next = halls.find((h) => h.id === event.hallId);
+    if (!next) return;
+    const prevHall = halls.find((h) => h.id === prev.hallId);
+    const rent = getValues("charges.hallRent");
+    if (!rent || (prevHall && rent === spaceRent(prevHall, prev.portionId))) {
+      setValue("charges.hallRent", spaceRent(next, event.portionId));
+    }
+  }, [event.hallId, event.portionId, halls, getValues, setValue]);
 
   const selectCustomer = (c: Customer) => {
     setValue("customerId", c.id);
@@ -246,11 +305,18 @@ export function BookingForm({
   };
 
   const clearCustomer = () => {
+    const previous = getValues("customer.name");
     setValue("customerId", "");
     setValue("customer", { name: "", mobile: "", whatsapp: "", email: "", address: "", cnic: "", notes: "" });
+    // Drop the organizer too if it was only filled in from that customer
+    if (previous && getValues("event.organizer") === previous) setValue("event.organizer", "");
   };
 
   const onSubmit = async (v: BookingFormValues) => {
+    if (hall && !v.event.portionId && !canBookFullHall(hall)) {
+      toast.error(`${hall.name} is booked by portion only. Please select a portion.`);
+      return;
+    }
     if (conflicts.blocking.length) {
       toast.error("This hall is already booked for the selected time.");
       return;
@@ -271,13 +337,28 @@ export function BookingForm({
       advance: !isEdit && v.advance.amount > 0 ? v.advance : undefined,
     };
     const result = await (isEdit ? updateBooking(booking.id, input) : createBooking(input));
-    setSubmitting(false);
     if (!result.ok) {
+      setSubmitting(false);
       toast.error(result.error);
       return;
     }
-    toast.success(isEdit ? "Booking updated" : `Booking ${result.data.bookingNumber} created`);
-    router.push(`/bookings/${result.data.id}`);
+    if (isEdit) {
+      setSubmitting(false);
+      toast.success("Booking updated");
+      router.push(`/bookings/${result.data.id}`);
+      return;
+    }
+    // New bookings get their invoice straight away and open it
+    const invoice = await issueInvoice(result.data.id);
+    setSubmitting(false);
+    if (!invoice.ok) {
+      toast.success(`Booking ${result.data.bookingNumber} created`);
+      toast.error(`Couldn't generate the invoice: ${invoice.error}`);
+      router.push(`/bookings/${result.data.id}`);
+      return;
+    }
+    toast.success(`Booking ${result.data.bookingNumber} created · invoice ${invoice.data.invoiceNumber} generated`);
+    router.push(`/invoices/${invoice.data.id}`);
   };
 
   const onInvalid = (errs: FieldErrors<BookingFormValues>) => {
@@ -296,7 +377,7 @@ export function BookingForm({
   const cur = settings.currency;
 
   return (
-    <form onSubmit={handleSubmit(onSubmit, onInvalid)} noValidate className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <form onSubmit={handleSubmit(onSubmit, onInvalid)} noValidate autoComplete="off" className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-6">
         {/* A. Customer */}
         <SectionCard
@@ -350,13 +431,13 @@ export function BookingForm({
             <FormField label="Event name / title" htmlFor="e-title" required error={errors.event?.title?.message} className="sm:col-span-2">
               <Input id="e-title" className={inputCls} placeholder="e.g. Ali & Sara Barat" aria-invalid={!!errors.event?.title} {...register("event.title")} />
             </FormField>
-            <FormField label="Event type" required>
+            <FormField label="Event type" required error={errors.event?.type?.message}>
               <Controller
                 control={control}
                 name="event.type"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="h-9! w-full"><SelectValue /></SelectTrigger>
+                  <Select value={field.value || undefined} onValueChange={field.onChange}>
+                    <SelectTrigger className="h-9! w-full" aria-invalid={!!errors.event?.type}><SelectValue placeholder="Select event type" /></SelectTrigger>
                     <SelectContent>
                       {EVENT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                     </SelectContent>
@@ -435,6 +516,58 @@ export function BookingForm({
                 </p>
               )}
             </FormField>
+            {hall?.divided && (
+              <FormField
+                label="Booking type"
+                required
+                className="sm:col-span-2"
+                hint={
+                  availabilityReady
+                    ? "Availability is for the selected date and time. Booking the full hall reserves every portion."
+                    : "Pick a date and time to see which spaces are free. Booking the full hall reserves every portion."
+                }
+              >
+                <Controller
+                  control={control}
+                  name="event.portionId"
+                  render={({ field }) => (
+                    <div role="radiogroup" aria-label="Booking type" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {spaceOptions.map((o) => {
+                        const selected = (field.value ?? "") === o.id;
+                        // Keep the current choice selectable even if it has since become unavailable
+                        const disabled = o.state === "unavailable" && !selected;
+                        return (
+                          <button
+                            key={o.id || "full"}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            disabled={disabled}
+                            onClick={() => field.onChange(o.id)}
+                            className={cn(
+                              "flex flex-col items-start gap-1 rounded-lg border p-3 text-left text-sm transition-colors hover:border-primary/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border",
+                              selected && "border-primary bg-primary/5 ring-1 ring-primary",
+                            )}
+                          >
+                            <span className="flex w-full items-center justify-between gap-2">
+                              <span className="flex items-center gap-1.5 font-medium">
+                                <LayoutGrid className="size-3.5 text-muted-foreground" />
+                                {o.name}
+                              </span>
+                              {availabilityReady || o.state === "unavailable" ? <SpaceStateBadge state={o.state} /> : null}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {o.detail ? `${o.detail} · ` : ""}
+                              {o.capacity} guests · {formatMoney(o.rent, cur)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                />
+              </FormField>
+            )}
             <FormField label="Hall / venue area" htmlFor="e-area">
               {hall && hall.areas.length > 0 ? (
                 <Controller
@@ -459,12 +592,12 @@ export function BookingForm({
               htmlFor="e-guests"
               required
               error={errors.event?.guests?.message}
-              hint={overCapacity ? undefined : hall ? `Hall capacity: ${hall.capacity}` : undefined}
+              hint={overCapacity ? undefined : hall ? `${event.portionId ? "Portion" : "Hall"} capacity: ${capacity}` : undefined}
             >
               <Input id="e-guests" type="number" min={1} inputMode="numeric" className={inputCls} aria-invalid={!!errors.event?.guests} {...register("event.guests", { setValueAs: numberValue })} />
               {overCapacity && (
                 <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
-                  <TriangleAlert className="size-3.5" /> Exceeds hall capacity of {hall.capacity}
+                  <TriangleAlert className="size-3.5" /> Exceeds {event.portionId ? "portion" : "hall"} capacity of {capacity}
                 </p>
               )}
             </FormField>
@@ -617,10 +750,10 @@ export function BookingForm({
       <aside className="space-y-4 xl:sticky xl:top-22 xl:self-start">
         <div className="rounded-xl border bg-card p-5 shadow-xs">
           <h3 className="mb-3 font-semibold">Availability</h3>
-          <AvailabilityAlert conflicts={conflicts} customers={customers} ready={availabilityReady} />
+          <AvailabilityAlert conflicts={conflicts} customers={customers} halls={halls} ready={availabilityReady} />
           {availabilityReady && (
             <p className="mt-3 text-xs text-muted-foreground">
-              {hall?.name} · {formatDate(event.date, "EEE, dd MMM yyyy")} · {formatDuration(duration)}
+              {space} · {formatDate(event.date, "EEE, dd MMM yyyy")} · {formatDuration(duration)}
             </p>
           )}
         </div>
@@ -643,4 +776,16 @@ export function BookingForm({
       </aside>
     </form>
   );
+}
+
+const SPACE_STATES = {
+  available: { label: "Available", cls: "bg-success/15 text-success" },
+  pending: { label: "Pending hold", cls: "bg-warning/15 text-amber-700 dark:text-amber-300" },
+  booked: { label: "Booked", cls: "bg-destructive/10 text-destructive" },
+  unavailable: { label: "Unavailable", cls: "bg-muted text-muted-foreground" },
+} as const;
+
+function SpaceStateBadge({ state }: { state: keyof typeof SPACE_STATES }) {
+  const s = SPACE_STATES[state];
+  return <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium", s.cls)}>{s.label}</span>;
 }

@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
 import { Crown, Eye, EyeOff, LoaderCircle, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/shared/form-field";
-import { apiUrl } from "@/lib/api";
+import { authApi } from "@/lib/api";
 import { loginSchema, type LoginValues } from "@/lib/validation";
 
 export default function LoginPage() {
@@ -22,27 +23,27 @@ export default function LoginPage() {
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema), defaultValues: { username: "", password: "" } });
 
+  // The store's logout() lands here with ?signedOut=1
+  useEffect(() => {
+    if (params.get("signedOut")) {
+      toast.success("You have been signed out");
+      router.replace("/login");
+    }
+  }, [params, router]);
+
   const onSubmit = async (values: LoginValues) => {
     setError(null);
-    try {
-      const res = await fetch(apiUrl("/api/auth/login"), {
-        credentials: "include",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(body?.error ?? "Could not sign in. Please try again.");
-        return;
-      }
-      // Only follow same-site relative paths
-      const next = params.get("next");
-      router.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
-      router.refresh();
-    } catch {
-      setError("Cannot reach the server. Check your connection and try again.");
+    const result = await authApi.login(values);
+    if (!result.ok) {
+      setError(result.error);
+      toast.error(result.error);
+      return;
     }
+    toast.success(`Welcome back, ${result.data.username}`);
+    // Only follow same-site relative paths
+    const next = params.get("next");
+    router.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+    router.refresh();
   };
 
   return (

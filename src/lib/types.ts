@@ -34,18 +34,35 @@ export interface Customer {
   createdAt: string;
 }
 
+/** A separately bookable part of a hall, e.g. "Portion A". */
+export interface HallPortion {
+  id: string;
+  name: string;
+  capacity: number;
+  rent: number;
+  /** Unavailable portions keep their bookings but cannot take new ones */
+  active: boolean;
+}
+
 export interface Hall {
   id: string;
   name: string;
   /** Sub-areas such as "Main Hall", "Lawn", "Rooftop" */
   areas: string[];
+  /** Total capacity of the whole hall */
   capacity: number;
+  /** Rent for booking the full hall */
   baseRent: number;
   location?: string;
   description?: string;
   color: string;
   active: boolean;
   createdAt: string;
+  /** Hall can be split into independently bookable portions. Missing on older records. */
+  divided?: boolean;
+  /** When divided, whether the whole hall can still be booked at once. Defaults to true. */
+  allowFullBooking?: boolean;
+  portions?: HallPortion[];
 }
 
 export interface EventDetails {
@@ -61,6 +78,8 @@ export interface EventDetails {
   overnight: boolean;
   guests: number;
   hallId: string;
+  /** Booked portion of a divided hall; empty means the full hall */
+  portionId?: string;
   venueArea?: string;
   organizer?: string;
   specialInstructions?: string;

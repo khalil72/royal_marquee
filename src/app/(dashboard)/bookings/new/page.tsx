@@ -16,6 +16,7 @@ export default function NewBookingPage() {
       <BookingForm
         initialDate={params.get("date") ?? undefined}
         initialHallId={params.get("hall") ?? undefined}
+        initialPortionId={params.get("portion") ?? undefined}
         initialStart={params.get("start") ?? undefined}
         initialCustomerId={params.get("customer") ?? undefined}
       />

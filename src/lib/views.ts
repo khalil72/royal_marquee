@@ -1,11 +1,15 @@
 import { calculateTotals, summarizePayments, type PaymentSummary, type Totals } from "./calc";
-import { eventDurationMinutes, eventInterval } from "./schedule";
-import type { Booking, Customer, Hall, Invoice, Payment } from "./types";
+import { eventDurationMinutes, eventInterval, findPortion, spaceLabel } from "./schedule";
+import type { Booking, Customer, Hall, HallPortion, Invoice, Payment } from "./types";
 
 export interface BookingView {
   booking: Booking;
   customer?: Customer;
   hall?: Hall;
+  /** Booked portion of a divided hall; undefined for full-hall bookings */
+  portion?: HallPortion;
+  /** "Hall", or "Hall · Portion A" / "Hall · Full hall" for divided halls */
+  space: string;
   totals: Totals;
   summary: PaymentSummary;
   payments: Payment[];
@@ -32,10 +36,13 @@ export function buildBookingViews(
       (a.date + a.createdAt).localeCompare(b.date + b.createdAt),
     );
     const { start, end } = eventInterval(booking.event);
+    const hall = hallMap.get(booking.event.hallId);
     return {
       booking,
       customer: customerMap.get(booking.customerId),
-      hall: hallMap.get(booking.event.hallId),
+      hall,
+      portion: findPortion(hall, booking.event.portionId),
+      space: spaceLabel(hall, booking.event.portionId, "Deleted hall"),
       totals,
       summary: summarizePayments(totals.grandTotal, bookingPayments),
       payments: bookingPayments,

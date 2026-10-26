@@ -76,7 +76,7 @@ export default function HallsPage() {
                       <p className="text-sm font-semibold">{h.capacity}</p>
                     </div>
                     <div className="rounded-lg bg-muted/50 p-2">
-                      <p className="text-[11px] text-muted-foreground">Base rent</p>
+                      <p className="text-[11px] text-muted-foreground">{h.divided ? "Full hall rent" : "Base rent"}</p>
                       <p className="truncate text-sm font-semibold">{formatMoney(h.baseRent, currency)}</p>
                     </div>
                     <div className="rounded-lg bg-muted/50 p-2">
@@ -84,6 +84,24 @@ export default function HallsPage() {
                       <p className="text-sm font-semibold">{i?.count ?? 0}</p>
                     </div>
                   </div>
+                  {h.divided && (h.portions?.length ?? 0) > 0 && (
+                    <div className="mt-3 rounded-lg border p-2.5">
+                      <p className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                        <span>{h.portions!.length} portions</span>
+                        <span>{h.allowFullBooking !== false ? "Full hall or by portion" : "By portion only"}</span>
+                      </p>
+                      <ul className="space-y-1">
+                        {h.portions!.map((p) => (
+                          <li key={p.id} className={cn("flex items-center justify-between gap-2 text-xs", !p.active && "text-muted-foreground line-through")}>
+                            <span className="truncate font-medium">{p.name}</span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              {p.capacity} guests · {formatMoney(p.rent, currency)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {h.areas.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {h.areas.map((a) => <span key={a} className="rounded-md border px-2 py-0.5 text-xs">{a}</span>)}

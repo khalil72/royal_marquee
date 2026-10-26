@@ -18,6 +18,7 @@ export interface GridColumn {
   header: React.ReactNode;
   segments: Omit<Segment, "lane" | "lanes">[];
   hallId?: string;
+  portionId?: string;
 }
 
 const hourLabel = (h: number) => `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
@@ -29,7 +30,7 @@ export function TimeGrid({
 }: {
   columns: GridColumn[];
   onSelect: (view: BookingView) => void;
-  onSlotClick: (dayKey: string, hour: number, hallId?: string) => void;
+  onSlotClick: (dayKey: string, hour: number, hallId?: string, portionId?: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -65,7 +66,7 @@ export function TimeGrid({
                       key={h}
                       type="button"
                       aria-label={`New booking at ${hourLabel(h)}`}
-                      onClick={() => onSlotClick(col.dayKey, h, col.hallId)}
+                      onClick={() => onSlotClick(col.dayKey, h, col.hallId, col.portionId)}
                       className="block w-full border-b border-dashed border-border/70 transition-colors hover:bg-primary/5"
                       style={{ height: HOUR_PX }}
                     />
@@ -96,7 +97,7 @@ export function TimeGrid({
                         </p>
                         {height > 50 && (
                           <>
-                            <p className="truncate opacity-80">{s.view.hall?.name}</p>
+                            <p className="truncate opacity-80">{s.view.space}</p>
                             <p className="truncate opacity-80">{s.view.customer?.name}</p>
                           </>
                         )}

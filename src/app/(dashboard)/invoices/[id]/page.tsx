@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { Eye } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InvoiceDocument } from "@/components/invoice/invoice-document";
 import { PrintToolbar } from "@/components/invoice/print-toolbar";
@@ -38,7 +38,7 @@ export default function InvoicePage() {
         actions={
           <PrintToolbar targetRef={ref} filename={`${invoice.invoiceNumber}.pdf`}>
             <Button asChild variant="outline" size="lg">
-              <Link href={`/bookings/${view.booking.id}`}><Eye /> View booking</Link>
+              <Link href={`/bookings/${view.booking.id}`}><ArrowLeft /> Back to booking</Link>
             </Button>
           </PrintToolbar>
         }

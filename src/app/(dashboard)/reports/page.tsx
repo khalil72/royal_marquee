@@ -133,7 +133,7 @@ export default function ReportsPage() {
         v.booking.event.startTime,
         v.booking.event.endTime,
         v.booking.event.guests,
-        v.hall?.name ?? "",
+        v.space,
         v.booking.status,
         v.summary.status,
         v.totals.grandTotal,

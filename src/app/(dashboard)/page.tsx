@@ -2,13 +2,14 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { format, isSameDay, startOfMonth, subMonths } from "date-fns";
+import { addMonths, format, isSameDay, isSameMonth, startOfMonth, subMonths } from "date-fns";
 import {
   ArrowRight,
   Banknote,
   CalendarCheck,
   CalendarClock,
   CalendarDays,
+  CheckCircle2,
   CircleDollarSign,
   ClipboardList,
   FileText,
@@ -57,9 +58,23 @@ export default function DashboardPage() {
       return { label: format(m, "MMM"), total };
     });
 
+    // Events per month by event date: 5 months back, this month, 6 ahead
+    const eventMonths = Array.from({ length: 12 }, (_, i) => addMonths(startOfMonth(now), i - 5)).map((m) => {
+      const inMonth = active.filter((v) => isSameMonth(v.start, m));
+      return {
+        key: format(m, "yyyy-MM"),
+        label: format(m, "MMM"),
+        year: format(m, "yyyy"),
+        count: inMonth.length,
+        guests: inMonth.reduce((s, v) => s + v.booking.event.guests, 0),
+        when: isSameMonth(m, now) ? "current" : m < now ? "past" : "future",
+      } as const;
+    });
+
     return {
       total: views.length,
       cancelled: views.length - active.length,
+      completed: views.filter((v) => v.booking.status === "Completed").length,
       today,
       upcoming,
       confirmed: views.filter((v) => v.booking.status === "Confirmed").length,
@@ -70,10 +85,14 @@ export default function DashboardPage() {
       dueCount: active.filter((v) => v.summary.remaining > 0).length,
       recent,
       monthly,
+      eventMonths,
     };
   }, [views, payments]);
 
   const maxMonthly = Math.max(1, ...data.monthly.map((m) => m.total));
+  const maxEvents = Math.max(1, ...data.eventMonths.map((m) => m.count));
+  const pastEvents = data.eventMonths.filter((m) => m.when !== "future").reduce((s, m) => s + m.count, 0);
+  const aheadEvents = data.eventMonths.filter((m) => m.when === "future").reduce((s, m) => s + m.count, 0);
 
   return (
     <div className="space-y-6">
@@ -103,16 +122,64 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Events" value={data.total} hint={`${data.cancelled} cancelled`} icon={ClipboardList} href="/bookings" />
-        <StatCard label="Today's Events" value={data.today.length} hint={format(new Date(), "dd MMM yyyy")} icon={CalendarDays} tone="gold" href="/calendar" />
-        <StatCard label="Upcoming Events" value={data.upcoming.length} hint={data.upcoming[0] ? `Next: ${formatDate(data.upcoming[0].booking.event.date)}` : "Nothing scheduled"} icon={CalendarClock} tone="info" href="/calendar" />
-        <StatCard label="Total Customers" value={customers.length} icon={Users} tone="primary" href="/customers" />
-        <StatCard label="Confirmed Bookings" value={data.confirmed} icon={CalendarCheck} tone="success" href="/bookings" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          label="Total Events"
+          value={data.total}
+          hint={`All bookings ever · ${data.completed} completed · ${data.cancelled} cancelled`}
+          icon={ClipboardList}
+          href="/bookings"
+        />
+        <StatCard label="Today's Events" value={data.today.length} hint={`Happening on ${format(new Date(), "dd MMM yyyy")}`} icon={CalendarDays} tone="gold" href="/calendar" />
+        <StatCard label="Upcoming Events" value={data.upcoming.length} hint={data.upcoming[0] ? `Next on ${formatDate(data.upcoming[0].booking.event.date)}` : "Nothing scheduled"} icon={CalendarClock} tone="info" href="/calendar" />
+        <StatCard label="Confirmed Bookings" value={data.confirmed} hint="Booked and confirmed" icon={CalendarCheck} tone="success" href="/bookings" />
         <StatCard label="Pending Bookings" value={data.pending} hint="Awaiting confirmation" icon={Hourglass} tone="warning" href="/bookings" />
+        <StatCard label="Completed Events" value={data.completed} hint="Events already held" icon={CheckCircle2} tone="primary" href="/bookings" />
         <StatCard label="Total Revenue" value={formatCompactMoney(data.received, cur)} hint={`Collected · booked ${formatCompactMoney(data.bookedValue, cur)}`} icon={Banknote} tone="success" href="/payments" />
-        <StatCard label="Outstanding Payments" value={formatCompactMoney(data.outstanding, cur)} hint={`${data.dueCount} bookings with balance`} icon={CircleDollarSign} tone="danger" href="/payments" />
+        <StatCard label="Outstanding Payments" value={formatCompactMoney(data.outstanding, cur)} hint={`${data.dueCount} booking${data.dueCount === 1 ? "" : "s"} with balance due`} icon={CircleDollarSign} tone="danger" href="/payments" />
+        <StatCard label="Total Customers" value={customers.length} hint="Saved in your customer list" icon={Users} tone="info" href="/customers" />
       </div>
+
+      {/* Events by month */}
+      <section className="rounded-xl border bg-card p-5 shadow-xs">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Events by Month</h2>
+            <p className="text-sm text-muted-foreground">
+              {pastEvents} held or this month · {aheadEvents} booked in the next 6 months
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-primary/45" /> Past</span>
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-primary" /> This month</span>
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-gold" /> Upcoming</span>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <div className="flex h-48 min-w-[560px] items-end gap-2 sm:gap-3" role="img" aria-label="Events per month, five months back to six months ahead">
+            {data.eventMonths.map((m) => (
+              <Link
+                key={m.key}
+                href="/calendar"
+                className="group flex h-full flex-1 flex-col items-center justify-end gap-1.5"
+                title={`${m.label} ${m.year}: ${m.count} event${m.count === 1 ? "" : "s"}${m.guests ? ` · ${m.guests.toLocaleString()} guests` : ""}`}
+              >
+                <span className={cn("text-xs font-semibold tabular-nums", m.count ? "text-foreground" : "text-muted-foreground/60")}>{m.count}</span>
+                <div
+                  className={cn(
+                    "w-full rounded-t-md transition-opacity group-hover:opacity-80",
+                    m.when === "past" && "bg-primary/45",
+                    m.when === "current" && "bg-primary",
+                    m.when === "future" && "bg-gold",
+                  )}
+                  style={{ height: `${Math.max(3, (m.count / maxEvents) * 136)}px` }}
+                />
+                <span className={cn("text-xs", m.when === "current" ? "font-semibold text-primary" : "text-muted-foreground")}>{m.label}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         {/* Upcoming */}
@@ -162,7 +229,7 @@ export default function DashboardPage() {
                       <TableCell>
                         <span className="inline-flex items-center gap-2 whitespace-nowrap">
                           <span className="size-2 rounded-full" style={{ background: v.hall?.color }} />
-                          {v.hall?.name}
+                          {v.space}
                         </span>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{v.booking.event.guests}</TableCell>
@@ -238,7 +305,7 @@ export default function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{v.booking.event.title}</p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {formatTime(v.booking.event.startTime)} – {formatTime(v.booking.event.endTime)} · {v.hall?.name} · {v.booking.event.guests} guests
+                        {formatTime(v.booking.event.startTime)} – {formatTime(v.booking.event.endTime)} · {v.space} · {v.booking.event.guests} guests
                       </p>
                     </div>
                     <StatusBadge status={v.booking.status} />

@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Crown } from "lucide-react";
+import { Crown, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
+import { authApi } from "@/lib/api";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NAV_ITEMS, isActive } from "./nav";
 
@@ -85,6 +87,79 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
       <div className="flex-1 overflow-y-auto p-3">
         <SidebarNav collapsed={collapsed} />
       </div>
+      <SidebarProfile collapsed={collapsed} />
     </aside>
+  );
+}
+
+/** Signed-in user and a sign-out button, pinned to the bottom of the sidebar. */
+export function SidebarProfile({ collapsed = false }: { collapsed?: boolean }) {
+  const logout = useStore((s) => s.logout);
+  const [username, setUsername] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void authApi.me().then((r) => {
+      if (!cancelled && r.ok) setUsername(r.data.username);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const signOut = () => {
+    setSigningOut(true);
+    void logout();
+  };
+
+  const avatar = (
+    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold uppercase text-primary">
+      {(username ?? "A").charAt(0)}
+    </div>
+  );
+
+  const signOutButton = (
+    <button
+      type="button"
+      onClick={signOut}
+      disabled={signingOut}
+      aria-label="Sign out"
+      className={cn(
+        "flex h-9 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50",
+        collapsed && "w-9 justify-center px-0",
+      )}
+    >
+      <LogOut className="size-4 shrink-0" />
+      {!collapsed && <span>Sign out</span>}
+    </button>
+  );
+
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-2 border-t p-3">
+        <Tooltip>
+          <TooltipTrigger asChild>{avatar}</TooltipTrigger>
+          <TooltipContent side="right">{username ?? "Administrator"}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>{signOutButton}</TooltipTrigger>
+          <TooltipContent side="right">Sign out</TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t p-3">
+      <div className="flex items-center gap-2.5 rounded-lg px-1 py-1.5">
+        {avatar}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium leading-tight">{username ?? "…"}</p>
+          <p className="truncate text-xs text-muted-foreground">Administrator</p>
+        </div>
+      </div>
+      <div className="mt-1">{signOutButton}</div>
+    </div>
   );
 }
