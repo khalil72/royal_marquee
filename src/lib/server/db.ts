@@ -19,7 +19,10 @@ function client() {
   if (!globalForMongo.mongoClient) {
     // Node on Windows often can't resolve SRV records via the system resolver
     // ("querySrv ECONNREFUSED"), so resolve mongodb+srv hosts through public DNS.
-    if (env.mongoUri.startsWith("mongodb+srv://")) dns.setServers(["8.8.8.8", "1.1.1.1"]);
+    // Only there: on Vercel/Linux the platform resolver works and overriding it can break lookups.
+    if (process.platform === "win32" && env.mongoUri.startsWith("mongodb+srv://")) {
+      dns.setServers(["8.8.8.8", "1.1.1.1"]);
+    }
     globalForMongo.mongoClient = new MongoClient(env.mongoUri, { serverSelectionTimeoutMS: 15000, ignoreUndefined: true })
       .connect()
       .then(async (c) => {
