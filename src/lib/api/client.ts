@@ -2,11 +2,10 @@ import type { Result } from "../domain";
 import type { AppData, Settings } from "../types";
 
 /**
- * Root URL of the API, e.g. "/api" or "https://example.com/api". Defaults to the
- * same origin, which the session cookie needs: it is httpOnly and SameSite=Lax, so
- * the API must be served from the same site as the pages.
+ * Root URL of the API. Always the same origin as the pages: the session cookie is
+ * httpOnly and SameSite=Lax, so the API must be served from the same site.
  */
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "/api").replace(/\/+$/, "");
+export const API_BASE_URL = "/api";
 
 /** Full URL for an API path such as "/data" or "/bookings/123". */
 export function apiUrl(path: string): string {
@@ -41,7 +40,7 @@ function goToLogin() {
 /** Message for a reply that didn't come from our API handlers (they always send { error }). */
 function fallbackError(status: number) {
   if (status === 404 || status === 405) {
-    return `The app couldn't find its server (error ${status}). Check that NEXT_PUBLIC_API_URL points to the API, then redeploy.`;
+    return `The app couldn't find its server (error ${status}). Please refresh the page and try again.`;
   }
   if (status >= 500) return `The server ran into a problem (error ${status}). Please try again in a moment.`;
   return `Request failed (error ${status}). Please try again.`;
